@@ -1,67 +1,59 @@
-import re
 import streamlit as st
 import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Grades Viewer", page_icon="📘", layout="centered")
 
-# ----------------------------
-# Helpers
-# ----------------------------
-def _require_secret(key: str):
+def require_secret(key: str):
     if key not in st.secrets:
-        raise RuntimeError(f"Missing secret: '{key}'. Please set it in secrets.toml.")
+        # Safe debug: show only available keys, not values
+        available = sorted(list(st.secrets.keys()))
+        raise RuntimeError(
+            f"Missing secret: '{key}'. Available top-level keys: {available}. "
+            "Check spelling, top-level placement, and TOML syntax."
+        )
 
-def build_csv_export_url(sheet_url: str) -> str:
-    """
-    Converts a standard Google Sheets URL into a CSV export URL.
-    Requires the sheet/tab to be accessible (e.g., 'Anyone with the link: Viewer').
-    """
-    sheet_url = sheet_url.strip()
+# ---- REQUIRED secrets
+require_secret("sheet_id")
+require_secret("id_column")
+require_secret("grade_columns")
+require_secret("gcp_service_account")
 
-    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
-    if not m:
-        raise ValueError("Could not find SHEET_ID in the provided sheet_url.")
-    sheet_id = m.group(1)
+SHEET_ID = st.secrets["sheet_id"]
+ID_COL = st.secrets["id_column"]
+GRADE_COLUMNS = dict(st.secrets["grade_columns"])  # label -> column header
+WORKSHEET_NAME = st.secrets.get("worksheet_name", None)
 
-    gid_match = re.search(r"gid=([0-9]+)", sheet_url)
-    gid = gid_match.group(1) if gid_match else "0"
+def get_gspread_client() -> gspread.Client:
+    sa_info = dict(st.secrets["gcp_service_account"])
 
-    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
+    creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
+    return gspread.authorize(creds)
 
 @st.cache_data(ttl=60)
-def load_sheet(csv_url: str) -> pd.DataFrame:
-    # Load the sheet tab as CSV
-    df = pd.read_csv(csv_url)
+def load_sheet() -> pd.DataFrame:
+    gc = get_gspread_client()
+    sh = gc.open_by_key(SHEET_ID)
 
-    # Normalize column names
+    ws = sh.worksheet(WORKSHEET_NAME) if WORKSHEET_NAME else sh.get_worksheet(0)
+
+    records = ws.get_all_records()  # expects header row
+    df = pd.DataFrame(records)
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-def find_student_row(df: pd.DataFrame, id_col: str, last6: str) -> pd.DataFrame:
-    ids = df[id_col].astype(str).str.replace(".0", "", regex=False).str.strip()
+def find_student(df: pd.DataFrame, last6: str) -> pd.DataFrame:
+    ids = df[ID_COL].astype(str).str.replace(".0", "", regex=False).str.strip()
     return df[ids.str[-6:] == last6].copy()
 
-# ----------------------------
-# Load config from secrets
-# ----------------------------
-_require_secret("sheet_url")
-_require_secret("id_column")
-_require_secret("grade_columns")
-
-SHEET_URL = st.secrets["sheet_url"]
-ID_COL = st.secrets["id_column"]
-
-# This is a dict like {"Quiz #1": "Quiz 1 Scores", ...}
-GRADE_COLUMNS = dict(st.secrets["grade_columns"])
-
-# ----------------------------
-# UI
-# ----------------------------
+# ---- UI
 st.title("📘 Grades Viewer")
-
-st.caption(
-    "Enter the **last 6 digits** of your ID Number, then choose which grade item to view."
-)
+st.caption("Enter the **last 6 digits** of your ID Number and select what you want to view.")
 
 grade_labels = list(GRADE_COLUMNS.keys())
 
@@ -76,48 +68,39 @@ if submitted:
         st.error("Please enter exactly **6 digits** (numbers only).")
         st.stop()
 
-    # Build CSV URL + load sheet
     try:
-        csv_url = build_csv_export_url(SHEET_URL)
-        df = load_sheet(csv_url)
+        df = load_sheet()
     except Exception as e:
-        st.error("Could not load the Google Sheet. Make sure it is viewable via link.")
+        st.error("Could not load the Google Sheet using the service account.")
         st.exception(e)
         st.stop()
 
     # Validate columns exist
     if ID_COL not in df.columns:
-        st.error(f"ID column '{ID_COL}' was not found in the sheet.")
+        st.error(f"ID column '{ID_COL}' not found.")
         st.write("Columns found:", list(df.columns))
         st.stop()
 
     target_col = GRADE_COLUMNS[selected_label]
     if target_col not in df.columns:
-        st.error(f"Configured grade column '{target_col}' was not found in the sheet.")
+        st.error(f"Grade column '{target_col}' not found (configured as '{selected_label}').")
         st.write("Columns found:", list(df.columns))
         st.stop()
 
-    # Find student
-    matches = find_student_row(df, ID_COL, last6)
+    matches = find_student(df, last6)
 
     if matches.empty:
         st.warning("No record found for that ID (last 6 digits). Please double-check.")
         st.stop()
 
     if len(matches) > 1:
-        st.warning(
-            "Multiple records matched that last-6 ID pattern. "
-            "Please contact your instructor/admin to fix duplicates."
-        )
+        st.warning("Multiple records matched that last-6 ID pattern. Please contact your instructor.")
         st.stop()
 
-    row = matches.iloc[0]
-    value = row.get(target_col, "")
-
+    value = matches.iloc[0].get(target_col, "")
     st.success("Record found ✅")
     st.metric(label=selected_label, value=str(value))
 
-    # Optional: show only the selected value + ID (privacy-safe)
     with st.expander("Details"):
         safe_df = matches[[ID_COL, target_col]].copy()
         safe_df.columns = ["ID Number", selected_label]
