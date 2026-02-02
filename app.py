@@ -52,7 +52,7 @@ def find_student(df: pd.DataFrame, last6: str) -> pd.DataFrame:
     return df[ids.str[-6:] == last6].copy()
 
 # ---- UI
-st.title("📘 Grades Viewer")
+st.title("ASE 4256 Grades Viewer")
 st.caption("Enter the **last 6 digits** of your ID Number and select what you want to view.")
 
 grade_labels = list(GRADE_COLUMNS.keys())
