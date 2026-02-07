@@ -25,6 +25,11 @@ ID_COL = st.secrets["id_column"]
 GRADE_COLUMNS = dict(st.secrets["grade_columns"])  # label -> column header
 WORKSHEET_NAME = st.secrets.get("worksheet_name", None)
 
+# OPTIONAL secret (you will configure this):
+# [grade_details]
+# "Prelim Grade" = ["Prelim SW (20%)", "Prelim Q (30%)", "Prelim Exam (50%)"]
+GRADE_DETAILS = dict(st.secrets.get("grade_details", {}))
+
 def get_gspread_client() -> gspread.Client:
     sa_info = dict(st.secrets["gcp_service_account"])
 
@@ -97,10 +102,48 @@ if submitted:
         st.warning("Multiple records matched that last-6 ID pattern. Please contact your instructor.")
         st.stop()
 
-    value = matches.iloc[0].get(target_col, "")
+    row = matches.iloc[0]
+    value = row.get(target_col, "")
+
     st.success("Record found ✅")
     st.metric(label=selected_label, value=str(value))
 
+    # ---- Policy note (shown only for Prelim Grade)
+    if selected_label.lower() == "prelim grade":
+        st.info(
+        "📌 **Important:** The Prelim Grade shown is based strictly on the computed "
+        "values in the grading sheet. **No rounding up or manual adjustment** "
+        "has been applied."
+        )
+
+
+    # ---- Transparency feature (no computation): show precomputed breakdown columns
+    detail_cols = GRADE_DETAILS.get(selected_label, [])
+    if detail_cols:
+        st.subheader("Breakdown (precomputed)")
+
+        missing = [c for c in detail_cols if c not in df.columns]
+        if missing:
+            st.warning(f"Some breakdown columns are missing in the sheet: {missing}")
+
+        present_cols = [c for c in detail_cols if c in df.columns]
+
+        # Show as metrics (quick to read)
+        for c in present_cols:
+            st.metric(label=c, value=str(row.get(c, "")))
+
+        # Show as a table (optional)
+        with st.expander("View breakdown as table"):
+            show_cols = [ID_COL, target_col] + present_cols
+            safe_df = matches[show_cols].copy()
+
+            # Rename for display
+            rename_map = {target_col: selected_label}
+            safe_df = safe_df.rename(columns=rename_map)
+
+            st.dataframe(safe_df, hide_index=True)
+
+    # ---- Original details (kept)
     with st.expander("Details"):
         safe_df = matches[[ID_COL, target_col]].copy()
         safe_df.columns = ["ID Number", selected_label]
