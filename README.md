@@ -163,5 +163,5 @@ Breakdown (if enabled):
 ------------------------------------------------------------------------
 
 # Author
-
+Arcee T. Juan
 Developed for **ASE 4256 -- Systems Dynamics and Vibrations**.
