@@ -113,6 +113,7 @@ Example configuration:
 ## 1. Install Dependencies
 
     pip install streamlit pandas gspread google-auth
+    or pip install -r requirements
 
 ------------------------------------------------------------------------
 
