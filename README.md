@@ -12,18 +12,18 @@ grading sheet.
 
 # Features
 
--   🔍 **Student Lookup**
+-    **Student Lookup**
     -   Students enter the **last 6 digits of their ID** to retrieve
         their grade.
--   📊 **Multiple Grade Items**
+-    **Multiple Grade Items**
     -   Instructor can configure which grade items students can view.
--   📑 **Grade Breakdown**
+-    **Grade Breakdown**
     -   Optionally display precomputed grading components (e.g.,
         quizzes, seatworks, exams).
--   🔒 **Secure Access**
+-    **Secure Access**
     -   Uses **Google Service Account credentials** stored in
         `st.secrets`.
--   ⚡ **Fast Loading**
+-    **Fast Loading**
     -   Data is cached using `st.cache_data` for faster performance.
 
 ------------------------------------------------------------------------
